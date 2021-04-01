@@ -1,0 +1,53 @@
+name: Publish Docker image
+on:
+  push:
+    branches:
+      - master
+
+env:
+  IMAGE_NAME: "meme-generator"
+  IMAGE_TAG: "lab9"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Run tests
+        run: |
+          docker-compose --file docker-compose-test.yml build
+          docker-compose --file docker-compose-test.yml up -d
+          curl http://localhost:8080/index.php
+          docker-compose --file docker-compose-test.yml down
+
+  # Push image to GitHub Packages.
+  push:
+    needs: test
+
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Build image
+        run: |
+          docker build apache/. --file apache/Dockerfile --tag ghcr.io/${{ github.actor }}/$IMAGE_NAME:$IMAGE_TAG
+
+      - name: Push image
+        run: |
+          ### Log into registry
+          echo "${{ secrets.PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+          ### Push the image to Github Packages
+          docker push ghcr.io/${{ github.actor }}/$IMAGE_NAME:$IMAGE_TAG
+
+      - name: Deploy to AZ App Service
+        uses: azure/webapps-deploy@v2
+        with:
+          # replace USERNAME by your teamname !
+          app-name: 'memegeneratorUSERNAME'
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          images: ghcr.io/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
